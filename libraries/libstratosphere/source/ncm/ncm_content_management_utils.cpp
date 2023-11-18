@@ -37,7 +37,7 @@ namespace ams::ncm {
             char path[MaxPackagePathLength];
             R_TRY(ConvertToFsCommonPath(path, sizeof(path), package_root_path, entry.name));
 
-            R_RETURN(ncm::ReadContentMetaPathWithoutExtendedDataOrDigest(out, path));
+            R_RETURN(ncm::TryReadContentMetaPath(out, path, ncm::ReadContentMetaPathWithoutExtendedDataOrDigest));
         }
 
         template<typename F>
@@ -108,13 +108,13 @@ namespace ams::ncm {
 
                 /* Read the content meta path, and build. */
                 ncm::AutoBuffer package_meta;
-                if (R_SUCCEEDED(ncm::ReadContentMetaPathWithoutExtendedDataOrDigest(std::addressof(package_meta), path.str))) {
+                if (R_SUCCEEDED(ncm::TryReadContentMetaPath(std::addressof(package_meta), path.str, ncm::ReadContentMetaPathWithoutExtendedDataOrDigest))) {
                     /* Get the size of the content. */
                     s64 size;
                     R_TRY(storage->GetSize(std::addressof(size), content_id));
 
                     /* Build. */
-                    R_TRY(this->BuildFromPackageContentMeta(package_meta.Get(), package_meta.GetSize(), ContentInfo::Make(content_id, size, ContentType::Meta)));
+                    R_TRY(this->BuildFromPackageContentMeta(package_meta.Get(), package_meta.GetSize(), ContentInfo::Make(content_id, size, ContentInfo::DefaultContentAttributes, ContentType::Meta)));
                 }
             }
 
@@ -144,7 +144,7 @@ namespace ams::ncm {
             R_UNLESS(content_id, ncm::ResultInvalidPackageFormat());
 
             /* Build using the meta. */
-            R_RETURN(this->BuildFromPackageContentMeta(package_meta.Get(), package_meta.GetSize(), ContentInfo::Make(*content_id, entry.file_size, ContentType::Meta)));
+            R_RETURN(this->BuildFromPackageContentMeta(package_meta.Get(), package_meta.GetSize(), ContentInfo::Make(*content_id, entry.file_size, ContentInfo::DefaultContentAttributes, ContentType::Meta)));
         }));
 
         /* Commit our changes. */

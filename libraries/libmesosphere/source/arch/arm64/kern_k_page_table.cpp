@@ -192,7 +192,7 @@ namespace ams::kern::arch::arm64 {
     Result KPageTable::InitializeForKernel(void *table, KVirtualAddress start, KVirtualAddress end) {
         /* Initialize basic fields. */
         m_asid = 0;
-        m_manager = std::addressof(Kernel::GetSystemPageTableManager());
+        m_manager = Kernel::GetSystemSystemResource().GetPageTableManagerPointer();
 
         /* Allocate a page for ttbr. */
         /* NOTE: It is a postcondition of page table manager allocation that the page is all-zero. */
@@ -207,16 +207,13 @@ namespace ams::kern::arch::arm64 {
         R_SUCCEED();
     }
 
-    Result KPageTable::InitializeForProcess(u32 id, ams::svc::CreateProcessFlag as_type, bool enable_aslr, bool enable_das_merge, bool from_back, KMemoryManager::Pool pool, KProcessAddress code_address, size_t code_size, KMemoryBlockSlabManager *mem_block_slab_manager, KBlockInfoManager *block_info_manager, KPageTableManager *pt_manager, KResourceLimit *resource_limit) {
-        /* The input ID isn't actually used. */
-        MESOSPHERE_UNUSED(id);
-
+    Result KPageTable::InitializeForProcess(ams::svc::CreateProcessFlag as_type, bool enable_aslr, bool enable_das_merge, bool from_back, KMemoryManager::Pool pool, KProcessAddress code_address, size_t code_size, KSystemResource *system_resource, KResourceLimit *resource_limit) {
         /* Get an ASID */
         m_asid = g_asid_manager.Reserve();
         ON_RESULT_FAILURE { g_asid_manager.Release(m_asid); };
 
         /* Set our manager. */
-        m_manager = pt_manager;
+        m_manager = system_resource->GetPageTableManagerPointer();
 
         /* Allocate a new table, and set our ttbr value. */
         const KVirtualAddress new_table = m_manager->Allocate();
@@ -228,7 +225,7 @@ namespace ams::kern::arch::arm64 {
         const size_t as_width = GetAddressSpaceWidth(as_type);
         const KProcessAddress as_start = 0;
         const KProcessAddress as_end   = (1ul << as_width);
-        R_TRY(KPageTableBase::InitializeForProcess(as_type, enable_aslr, enable_das_merge, from_back, pool, GetVoidPointer(new_table), as_start, as_end, code_address, code_size, mem_block_slab_manager, block_info_manager, resource_limit));
+        R_TRY(KPageTableBase::InitializeForProcess(as_type, enable_aslr, enable_das_merge, from_back, pool, GetVoidPointer(new_table), as_start, as_end, code_address, code_size, system_resource, resource_limit));
 
         /* Note that we've updated the table (since we created it). */
         this->NoteUpdated();
@@ -239,8 +236,14 @@ namespace ams::kern::arch::arm64 {
         /* Only process tables should be finalized. */
         MESOSPHERE_ASSERT(!this->IsKernel());
 
+        /* NOTE: Here Nintendo calls an unknown OnFinalize function. */
+        /* this->OnFinalize(); */
+
         /* Note that we've updated (to ensure we're synchronized). */
         this->NoteUpdated();
+
+        /* NOTE: Here Nintendo calls a second unknown OnFinalize function. */
+        /* this->OnFinalize2(); */
 
         /* Free all pages in the table. */
         {
@@ -357,6 +360,19 @@ namespace ams::kern::arch::arm64 {
 
         if (operation == OperationType_Unmap) {
             R_RETURN(this->Unmap(virt_addr, num_pages, page_list, false, reuse_ll));
+        } else if (operation == OperationType_Separate) {
+            const size_t size = num_pages * PageSize;
+            R_TRY(this->SeparatePages(virt_addr, std::min(util::GetAlignment(GetInteger(virt_addr)), size), page_list, reuse_ll));
+            ON_RESULT_FAILURE { this->MergePages(virt_addr, page_list); };
+
+            if (num_pages > 1) {
+                const auto end_page  = virt_addr + size;
+                const auto last_page = end_page - PageSize;
+
+                R_TRY(this->SeparatePages(last_page, std::min(util::GetAlignment(GetInteger(end_page)), size), page_list, reuse_ll));
+            }
+
+            R_SUCCEED();
         } else {
             auto entry_template = this->GetEntryTemplate(properties);
 
@@ -364,9 +380,11 @@ namespace ams::kern::arch::arm64 {
                 case OperationType_Map:
                     R_RETURN(this->MapContiguous(virt_addr, phys_addr, num_pages, entry_template, properties.disable_merge_attributes == DisableMergeAttribute_DisableHead, page_list, reuse_ll));
                 case OperationType_ChangePermissions:
-                    R_RETURN(this->ChangePermissions(virt_addr, num_pages, entry_template, properties.disable_merge_attributes, false, page_list, reuse_ll));
+                    R_RETURN(this->ChangePermissions(virt_addr, num_pages, entry_template, properties.disable_merge_attributes, false, false, page_list, reuse_ll));
                 case OperationType_ChangePermissionsAndRefresh:
-                    R_RETURN(this->ChangePermissions(virt_addr, num_pages, entry_template, properties.disable_merge_attributes, true, page_list, reuse_ll));
+                    R_RETURN(this->ChangePermissions(virt_addr, num_pages, entry_template, properties.disable_merge_attributes, true, false, page_list, reuse_ll));
+                case OperationType_ChangePermissionsAndRefreshAndFlush:
+                    R_RETURN(this->ChangePermissions(virt_addr, num_pages, entry_template, properties.disable_merge_attributes, true, true, page_list, reuse_ll));
                 MESOSPHERE_UNREACHABLE_DEFAULT_CASE();
             }
         }
@@ -383,7 +401,8 @@ namespace ams::kern::arch::arm64 {
         auto entry_template = this->GetEntryTemplate(properties);
         switch (operation) {
             case OperationType_MapGroup:
-                R_RETURN(this->MapGroup(virt_addr, page_group, num_pages, entry_template, properties.disable_merge_attributes == DisableMergeAttribute_DisableHead, page_list, reuse_ll));
+            case OperationType_MapFirstGroup:
+                R_RETURN(this->MapGroup(virt_addr, page_group, num_pages, entry_template, properties.disable_merge_attributes == DisableMergeAttribute_DisableHead, operation != OperationType_MapFirstGroup, page_list, reuse_ll));
             MESOSPHERE_UNREACHABLE_DEFAULT_CASE();
         }
     }
@@ -817,11 +836,11 @@ namespace ams::kern::arch::arm64 {
         R_SUCCEED();
     }
 
-    Result KPageTable::MapGroup(KProcessAddress virt_addr, const KPageGroup &pg, size_t num_pages, PageTableEntry entry_template, bool disable_head_merge, PageLinkedList *page_list, bool reuse_ll) {
+    Result KPageTable::MapGroup(KProcessAddress virt_addr, const KPageGroup &pg, size_t num_pages, PageTableEntry entry_template, bool disable_head_merge, bool not_first, PageLinkedList *page_list, bool reuse_ll) {
         MESOSPHERE_ASSERT(this->IsLockedByCurrentThread());
 
         /* We want to maintain a new reference to every page in the group. */
-        KScopedPageGroup spg(pg);
+        KScopedPageGroup spg(pg, not_first);
 
         /* Cache initial address for use on cleanup. */
         const KProcessAddress  orig_virt_addr = virt_addr;
@@ -1215,7 +1234,7 @@ namespace ams::kern::arch::arm64 {
         R_RETURN(this->SeparatePagesImpl(virt_addr, block_size, page_list, reuse_ll));
     }
 
-    Result KPageTable::ChangePermissions(KProcessAddress virt_addr, size_t num_pages, PageTableEntry entry_template, DisableMergeAttribute disable_merge_attr, bool refresh_mapping, PageLinkedList *page_list, bool reuse_ll) {
+    Result KPageTable::ChangePermissions(KProcessAddress virt_addr, size_t num_pages, PageTableEntry entry_template, DisableMergeAttribute disable_merge_attr, bool refresh_mapping, bool flush_mapping, PageLinkedList *page_list, bool reuse_ll) {
         MESOSPHERE_ASSERT(this->IsLockedByCurrentThread());
 
         /* Separate pages before we change permissions. */
@@ -1433,8 +1452,8 @@ namespace ams::kern::arch::arm64 {
                 KScopedSchedulerLock sl;
             }
 
-            /* Finally, apply the changes as directed, flushing the mappings before they're applied. */
-            ApplyEntryTemplate(entry_template, ApplyOption_FlushDataCache);
+            /* Finally, apply the changes as directed, flushing the mappings before they're applied (if we should). */
+            ApplyEntryTemplate(entry_template, flush_mapping ? ApplyOption_FlushDataCache : ApplyOption_None);
         }
 
         /* We've succeeded, now perform what coalescing we can. */

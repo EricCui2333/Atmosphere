@@ -18,7 +18,7 @@
 
 namespace ams::ncm {
 
-    Result ContentMetaDatabaseImpl::GetContentIdImpl(ContentId *out, const ContentMetaKey &key, ContentType type, util::optional<u8> id_offset) const {
+    Result ContentMetaDatabaseImpl::GetContentInfoImpl(ContentInfo *out, const ContentMetaKey &key, ContentType type, util::optional<u8> id_offset) const {
         R_TRY(this->EnsureEnabled());
 
         /* Find the meta key. */
@@ -45,7 +45,7 @@ namespace ams::ncm {
         R_UNLESS(content_info != nullptr, ncm::ResultContentNotFound());
 
         /* Save output. */
-        *out = content_info->content_id;
+        *out = *content_info;
         R_SUCCEED();
     }
 
@@ -275,11 +275,11 @@ namespace ams::ncm {
         R_SUCCEED();
     }
 
-    Result ContentMetaDatabaseImpl::GetPatchId(sf::Out<PatchId> out_patch_id, const ContentMetaKey &key) {
+    Result ContentMetaDatabaseImpl::GetPatchContentMetaId(sf::Out<u64> out_patch_id, const ContentMetaKey &key) {
         R_TRY(this->EnsureEnabled());
 
         /* Only applications can have patches. */
-        R_UNLESS(key.type == ContentMetaType::Application, ncm::ResultInvalidContentMetaKey());
+        R_UNLESS(key.type == ContentMetaType::Application || key.type == ContentMetaType::AddOnContent, ncm::ResultInvalidContentMetaKey());
 
         /* Obtain the content meta for the key. */
         const void *meta;
@@ -290,7 +290,17 @@ namespace ams::ncm {
         ContentMetaReader reader(meta, meta_size);
 
         /* Obtain the patch id. */
-        out_patch_id.SetValue(reader.GetExtendedHeader<ApplicationMetaExtendedHeader>()->patch_id);
+        switch (key.type) {
+            case ContentMetaType::Application:
+                out_patch_id.SetValue(reader.GetExtendedHeader<ApplicationMetaExtendedHeader>()->patch_id.value);
+                break;
+            case ContentMetaType::AddOnContent:
+                R_UNLESS(reader.GetExtendedHeaderSize() == sizeof(AddOnContentMetaExtendedHeader), ncm::ResultInvalidAddOnContentMetaExtendedHeader());
+                out_patch_id.SetValue(reader.GetExtendedHeader<AddOnContentMetaExtendedHeader>()->data_patch_id.value);
+                break;
+            AMS_UNREACHABLE_DEFAULT_CASE();
+        }
+
         R_SUCCEED();
     }
 
@@ -478,6 +488,49 @@ namespace ams::ncm {
 
         /* Set the output value. */
         out_id.SetValue(owner_application_id);
+        R_SUCCEED();
+    }
+
+    Result ContentMetaDatabaseImpl::GetContentAccessibilities(sf::Out<u8> out_accessibilities, const ContentMetaKey &key) {
+        R_TRY(this->EnsureEnabled());
+
+        /* Ensure this type of key is for an add-on content. */
+        R_UNLESS(key.type == ContentMetaType::AddOnContent, ncm::ResultInvalidContentMetaKey());
+
+        /* Obtain the content meta for the key. */
+        const void *meta;
+        size_t meta_size;
+        R_TRY(this->GetContentMetaPointer(&meta, &meta_size, key));
+
+        /* Create a reader. */
+        ContentMetaReader reader(meta, meta_size);
+
+        /* Set the ouput value. */
+        out_accessibilities.SetValue(reader.GetExtendedHeader<AddOnContentMetaExtendedHeader>()->content_accessibilities);
+        R_SUCCEED();
+    }
+
+    Result ContentMetaDatabaseImpl::GetContentInfoByType(sf::Out<ContentInfo> out_content_info, const ContentMetaKey &key, ContentType type) {
+        R_RETURN(this->GetContentInfoImpl(out_content_info.GetPointer(), key, type, util::nullopt));
+    }
+
+    Result ContentMetaDatabaseImpl::GetContentInfoByTypeAndIdOffset(sf::Out<ContentInfo> out_content_info, const ContentMetaKey &key, ContentType type, u8 id_offset) {
+        R_RETURN(this->GetContentInfoImpl(out_content_info.GetPointer(), key, type, util::make_optional(id_offset)));
+    }
+
+    Result ContentMetaDatabaseImpl::GetPlatform(sf::Out<ncm::ContentMetaPlatform> out, const ContentMetaKey &key) {
+        R_TRY(this->EnsureEnabled());
+
+        /* Obtain the content meta for the key. */
+        const void *meta;
+        size_t meta_size;
+        R_TRY(this->GetContentMetaPointer(&meta, &meta_size, key));
+
+        /* Create a reader. */
+        ContentMetaReader reader(meta, meta_size);
+
+        /* Set the ouput value. */
+        out.SetValue(reader.GetHeader()->platform);
         R_SUCCEED();
     }
 

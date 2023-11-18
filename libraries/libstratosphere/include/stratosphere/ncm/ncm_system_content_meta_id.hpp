@@ -97,6 +97,8 @@ namespace ams::ncm {
         static const SystemProgramId Ngct;
         static const SystemProgramId Pgl;
         static const SystemProgramId Omm;
+        static const SystemProgramId Eth;
+        static const SystemProgramId Ngc;
 
         static const SystemProgramId End;
 
@@ -203,6 +205,8 @@ namespace ams::ncm {
     inline constexpr const SystemProgramId SystemProgramId::Ngct        = { 0x0100000000000041ul };
     inline constexpr const SystemProgramId SystemProgramId::Pgl         = { 0x0100000000000042ul };
     inline constexpr const SystemProgramId SystemProgramId::Omm         = { 0x0100000000000045ul };
+    inline constexpr const SystemProgramId SystemProgramId::Eth         = { 0x0100000000000046ul };
+    inline constexpr const SystemProgramId SystemProgramId::Ngc         = { 0x0100000000000050ul };
 
     inline constexpr const SystemProgramId SystemProgramId::End   = { 0x01000000000007FFul };
 
@@ -225,6 +229,9 @@ namespace ams::ncm {
         constexpr operator DataId() const {
             return { this->value };
         }
+
+        constexpr inline bool operator==(const SystemDataId &) const = default;
+        constexpr inline bool operator!=(const SystemDataId &) const = default;
 
         static const SystemDataId Start;
 
@@ -338,6 +345,9 @@ namespace ams::ncm {
         constexpr operator DataId() const {
             return { this->value };
         }
+
+        constexpr inline bool operator==(const SystemUpdateId &) const = default;
+        constexpr inline bool operator!=(const SystemUpdateId &) const = default;
     };
 
     struct SystemAppletId {
@@ -346,6 +356,9 @@ namespace ams::ncm {
         constexpr operator ProgramId() const {
             return { this->value };
         }
+
+        constexpr inline bool operator==(const SystemAppletId &) const = default;
+        constexpr inline bool operator!=(const SystemAppletId &) const = default;
 
         static const SystemAppletId Start;
 
@@ -431,6 +444,9 @@ namespace ams::ncm {
             return { this->value };
         }
 
+        constexpr inline bool operator==(const SystemDebugAppletId &) const = default;
+        constexpr inline bool operator!=(const SystemDebugAppletId &) const = default;
+
         static const SystemDebugAppletId Start;
 
         static const SystemDebugAppletId SnapShotDumper;
@@ -462,6 +478,9 @@ namespace ams::ncm {
         constexpr operator ProgramId() const {
             return static_cast<SystemAppletId>(*this);
         }
+
+        constexpr inline bool operator==(const LibraryAppletId &) const = default;
+        constexpr inline bool operator!=(const LibraryAppletId &) const = default;
 
         static const LibraryAppletId Auth;
         static const LibraryAppletId Controller;
@@ -525,6 +544,9 @@ namespace ams::ncm {
             return static_cast<SystemAppletId>(*this);
         }
 
+        constexpr inline bool operator==(const WebAppletId &) const = default;
+        constexpr inline bool operator!=(const WebAppletId &) const = default;
+
         static const WebAppletId Web;
         static const WebAppletId Shop;
         static const WebAppletId OfflineWeb;
@@ -556,6 +578,9 @@ namespace ams::ncm {
         constexpr operator ProgramId() const {
             return { this->value };
         }
+
+        constexpr inline bool operator==(const SystemApplicationId &) const = default;
+        constexpr inline bool operator!=(const SystemApplicationId &) const = default;
     };
 
 }

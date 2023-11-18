@@ -89,6 +89,18 @@ enum FS_VER
     FS_VER_14_0_0,
     FS_VER_14_0_0_EXFAT,
 
+    FS_VER_15_0_0,
+    FS_VER_15_0_0_EXFAT,
+
+    FS_VER_16_0_0,
+    FS_VER_16_0_0_EXFAT,
+
+    FS_VER_16_0_3,
+    FS_VER_16_0_3_EXFAT,
+
+    FS_VER_17_0_0,
+    FS_VER_17_0_0_EXFAT,
+
     FS_VER_MAX,
 };
 

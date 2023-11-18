@@ -52,7 +52,7 @@ namespace ams::secmon::smc {
             [fuse::DramId_IcosaSamsung6GB]    = pkg1::MemorySize_6GB,
             [fuse::DramId_HoagHynix1y4GB]     = pkg1::MemorySize_4GB,
             [fuse::DramId_AulaHynix1y4GB]     = pkg1::MemorySize_4GB,
-            [fuse::DramId_IowaX1X2Samsung4GB] = pkg1::MemorySize_4GB,
+            [fuse::DramId_Deprecated7]        = pkg1::MemorySize_4GB,
             [fuse::DramId_IowaSansung4GB]     = pkg1::MemorySize_4GB,
             [fuse::DramId_IowaSamsung8GB]     = pkg1::MemorySize_8GB,
             [fuse::DramId_IowaHynix4GB]       = pkg1::MemorySize_4GB,
@@ -61,7 +61,7 @@ namespace ams::secmon::smc {
             [fuse::DramId_HoagSamsung8GB]     = pkg1::MemorySize_8GB,
             [fuse::DramId_HoagHynix4GB]       = pkg1::MemorySize_4GB,
             [fuse::DramId_HoagMicron4GB]      = pkg1::MemorySize_4GB,
-            [fuse::DramId_IowaSamsung4GBY]    = pkg1::MemorySize_4GB,
+            [fuse::DramId_Deprecated16]       = pkg1::MemorySize_4GB,
             [fuse::DramId_IowaSamsung1y4GBX]  = pkg1::MemorySize_4GB,
             [fuse::DramId_IowaSamsung1y8GBX]  = pkg1::MemorySize_8GB,
             [fuse::DramId_HoagSamsung1y4GBX]  = pkg1::MemorySize_4GB,
@@ -74,6 +74,12 @@ namespace ams::secmon::smc {
             [fuse::DramId_HoagMicron1y4GB]    = pkg1::MemorySize_4GB,
             [fuse::DramId_AulaMicron1y4GB]    = pkg1::MemorySize_4GB,
             [fuse::DramId_AulaSamsung1y8GBX]  = pkg1::MemorySize_8GB,
+            [fuse::DramId_IowaX1X2Samsung4GB] = pkg1::MemorySize_4GB,
+            [fuse::DramId_HoagX1X2Samsung4GB] = pkg1::MemorySize_4GB,
+            [fuse::DramId_AulaX1X2Samsung4GB] = pkg1::MemorySize_4GB,
+            [fuse::DramId_IowaSamsung4GBY]    = pkg1::MemorySize_4GB,
+            [fuse::DramId_HoagSamsung4GBY]    = pkg1::MemorySize_4GB,
+            [fuse::DramId_AulaSamsung4GBY]    = pkg1::MemorySize_4GB,
         };
 
         constexpr const pkg1::MemoryMode MemoryModes[] = {
@@ -351,6 +357,9 @@ namespace ams::secmon::smc {
                             case UserRebootType_ToFatalError:
                                 PerformUserRebootToFatalError();
                                 break;
+                            case UserRebootType_ByPmic:
+                                PerformUserRebootByPmic();
+                                break;
                             default:
                                 return SmcResult::InvalidArgument;
                         }
@@ -359,18 +368,17 @@ namespace ams::secmon::smc {
                             case UserRebootType_ToFatalError:
                                 PerformUserRebootToFatalError();
                                 break;
+                            case UserRebootType_ByPmic:
+                                PerformUserRebootByPmic();
+                                break;
                             default:
                                 return SmcResult::InvalidArgument;
                         }
                     }
                     break;
                 case ConfigItem::ExosphereNeedsShutdown:
-                    if (soc_type == fuse::SocType_Erista) {
-                        if (args.r[3] != 0) {
-                            PerformUserShutDown();
-                        }
-                    } else /* if (soc_type == fuse::SocType_Mariko) */ {
-                        return SmcResult::NotSupported;
+                    if (args.r[3] != 0) {
+                        PerformUserShutDown();
                     }
                     break;
                 case ConfigItem::ExospherePayloadAddress:

@@ -108,7 +108,8 @@ namespace ams::kern {
         /* Free each region to its corresponding heap. */
         size_t reserved_sizes[MaxManagerCount] = {};
         const KPhysicalAddress ini_start = GetInitialProcessBinaryPhysicalAddress();
-        const KPhysicalAddress ini_end   = ini_start + InitialProcessBinarySizeMax;
+        const size_t ini_size            = GetInitialProcessBinarySize();
+        const KPhysicalAddress ini_end   = ini_start + ini_size;
         const KPhysicalAddress ini_last  = ini_end - 1;
         for (const auto &it : KMemoryLayout::GetPhysicalMemoryRegionTree()) {
             if (it.IsDerivedFrom(KMemoryRegionType_DramUserPool)) {
@@ -126,13 +127,13 @@ namespace ams::kern {
                     }
 
                     /* Open/reserve the ini memory. */
-                    manager.OpenFirst(ini_start, InitialProcessBinarySizeMax / PageSize);
-                    reserved_sizes[it.GetAttributes()] += InitialProcessBinarySizeMax;
+                    manager.OpenFirst(ini_start, ini_size / PageSize);
+                    reserved_sizes[it.GetAttributes()] += ini_size;
 
                     /* Free memory after the ini to the heap. */
                     if (ini_last != cur_last) {
                         MESOSPHERE_ABORT_UNLESS(cur_end != Null<KPhysicalAddress>);
-                        manager.Free(ini_end, cur_end - ini_end);
+                        manager.Free(ini_end, (cur_end - ini_end) / PageSize);
                     }
                 } else {
                     /* Ensure there's no partial overlap with the ini image. */
@@ -308,7 +309,7 @@ namespace ams::kern {
         R_SUCCEED();
     }
 
-    Result KMemoryManager::AllocateAndOpenForProcess(KPageGroup *out, size_t num_pages, u32 option, u64 process_id, u8 fill_pattern) {
+    Result KMemoryManager::AllocateForProcess(KPageGroup *out, size_t num_pages, u32 option, u64 process_id, u8 fill_pattern) {
         MESOSPHERE_ASSERT(out != nullptr);
         MESOSPHERE_ASSERT(out->GetNumPages() == 0);
 
@@ -330,24 +331,6 @@ namespace ams::kern {
 
             /* Set whether we should optimize. */
             optimized = has_optimized && is_optimized;
-
-            /* Open the first reference to the pages. */
-            for (const auto &block : *out) {
-                KPhysicalAddress cur_address = block.GetAddress();
-                size_t remaining_pages       = block.GetNumPages();
-                while (remaining_pages > 0) {
-                    /* Get the manager for the current address. */
-                    auto &manager = this->GetManager(cur_address);
-
-                    /* Process part or all of the block. */
-                    const size_t cur_pages = std::min(remaining_pages, manager.GetPageOffsetToEnd(cur_address));
-                    manager.OpenFirst(cur_address, cur_pages);
-
-                    /* Advance. */
-                    cur_address     += cur_pages * PageSize;
-                    remaining_pages -= cur_pages;
-                }
-            }
         }
 
         /* Perform optimized memory tracking, if we should. */

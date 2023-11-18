@@ -16,6 +16,7 @@
 #pragma once
 #include <stratosphere/ncm/ncm_content_meta_id.hpp>
 #include <stratosphere/ncm/ncm_content_meta_key.hpp>
+#include <stratosphere/ncm/ncm_content_meta_platform.hpp>
 #include <stratosphere/ncm/ncm_content_info.hpp>
 #include <stratosphere/ncm/ncm_content_info_data.hpp>
 #include <stratosphere/ncm/ncm_firmware_variation.hpp>
@@ -27,6 +28,7 @@ namespace ams::ncm {
         ContentMetaAttribute_None                   = (0 << 0),
         ContentMetaAttribute_IncludesExFatDriver    = (1 << 0),
         ContentMetaAttribute_Rebootless             = (1 << 1),
+        ContentMetaAttribute_Compacted              = (1 << 2),
     };
 
     struct ContentMetaInfo {
@@ -57,7 +59,7 @@ namespace ams::ncm {
         u16 content_count;
         u16 content_meta_count;
         u8 attributes;
-        StorageId storage_id;
+        ContentMetaPlatform platform;
     };
 
     static_assert(sizeof(ContentMetaHeader) == 0x8);
@@ -66,7 +68,7 @@ namespace ams::ncm {
         u64 id;
         u32 version;
         ContentMetaType type;
-        u8 reserved_0D;
+        ContentMetaPlatform platform;
         u16 extended_header_size;
         u16 content_count;
         u16 content_meta_count;
@@ -78,7 +80,6 @@ namespace ams::ncm {
         u8 reserved_1C[4];
     };
     static_assert(sizeof(PackagedContentMetaHeader) == 0x20);
-    static_assert(AMS_OFFSETOF(PackagedContentMetaHeader, reserved_0D) == 0x0D);
     static_assert(AMS_OFFSETOF(PackagedContentMetaHeader, reserved_1C) == 0x1C);
 
     using InstallContentMetaHeader = PackagedContentMetaHeader;
@@ -97,6 +98,14 @@ namespace ams::ncm {
     };
 
     struct AddOnContentMetaExtendedHeader {
+        ApplicationId application_id;
+        u32 required_application_version;
+        u8 content_accessibilities;
+        u8 padding[3];
+        DataPatchId data_patch_id;
+    };
+
+    struct LegacyAddOnContentMetaExtendedHeader {
         ApplicationId application_id;
         u32 required_application_version;
         u32 padding;

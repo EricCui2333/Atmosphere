@@ -21,13 +21,19 @@ namespace ams::kern::board::nintendo::nx {
 
     class KSystemControl : public KSystemControlBase {
         public:
+            /* This can be overridden as needed. */
+            static constexpr size_t SecureAppletMemorySize = 4_MB;
+        public:
             class Init : public KSystemControlBase::Init {
+                private:
+                    friend class KSystemControlBase::Init;
+                private:
+                    static void CpuOnImpl(u64 core_id, uintptr_t entrypoint, uintptr_t arg);
                 public:
                     /* Initialization. */
                     static size_t GetRealMemorySize();
                     static size_t GetIntendedMemorySize();
                     static bool ShouldIncreaseThreadResourceLimit();
-                    static void CpuOn(u64 core_id, uintptr_t entrypoint, uintptr_t arg);
                     static size_t GetApplicationPoolSize();
                     static size_t GetAppletPoolSize();
                     static size_t GetMinimumNonSecureSystemPoolSize();

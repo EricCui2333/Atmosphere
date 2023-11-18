@@ -29,7 +29,6 @@ namespace ams::kern::board::nintendo::nx {
         constinit bool g_call_smc_on_panic;
 
         /* Global variables for secure memory. */
-        constexpr size_t SecureAppletMemorySize = 4_MB;
         constinit KSpinLock g_secure_applet_lock;
         constinit bool g_secure_applet_memory_used = false;
         constinit KVirtualAddress g_secure_applet_memory_address = Null<KVirtualAddress>;
@@ -246,8 +245,8 @@ namespace ams::kern::board::nintendo::nx {
 
         Result AllocateSecureMemoryForApplet(KVirtualAddress *out, size_t size) {
             /* Verify that the size is valid. */
-            R_UNLESS(util::IsAligned(size, PageSize), svc::ResultInvalidSize());
-            R_UNLESS(size <= SecureAppletMemorySize,  svc::ResultOutOfMemory());
+            R_UNLESS(util::IsAligned(size, PageSize),                svc::ResultInvalidSize());
+            R_UNLESS(size <= KSystemControl::SecureAppletMemorySize, svc::ResultOutOfMemory());
 
             /* Disable interrupts and acquire the secure applet lock. */
             KScopedInterruptDisable di;
@@ -273,7 +272,7 @@ namespace ams::kern::board::nintendo::nx {
 
             /* Verify that the memory being freed is correct. */
             MESOSPHERE_ABORT_UNLESS(address == g_secure_applet_memory_address);
-            MESOSPHERE_ABORT_UNLESS(size <= SecureAppletMemorySize);
+            MESOSPHERE_ABORT_UNLESS(size <= KSystemControl::SecureAppletMemorySize);
             MESOSPHERE_ABORT_UNLESS(util::IsAligned(size, PageSize));
             MESOSPHERE_ABORT_UNLESS(g_secure_applet_memory_used);
 
@@ -368,10 +367,14 @@ namespace ams::kern::board::nintendo::nx {
 
     size_t KSystemControl::Init::GetMinimumNonSecureSystemPoolSize() {
         /* Verify that our minimum is at least as large as Nintendo's. */
-        constexpr size_t MinimumSize = ::ams::svc::RequiredNonSecureSystemMemorySize;
-        static_assert(MinimumSize >= 0x29C8000);
+        constexpr size_t MinimumSizeWithFatal = ::ams::svc::RequiredNonSecureSystemMemorySizeWithFatal;
+        static_assert(MinimumSizeWithFatal >= 0x2C04000);
 
-        return MinimumSize;
+        constexpr size_t MinimumSizeWithoutFatal = ::ams::svc::RequiredNonSecureSystemMemorySize;
+        static_assert(MinimumSizeWithoutFatal >= 0x2A00000);
+
+        /* Include fatal in non-seure size on 16.0.0+. */
+        return kern::GetTargetFirmware() >= ams::TargetFirmware_16_0_0 ? MinimumSizeWithFatal : MinimumSizeWithoutFatal;
     }
 
     u8 KSystemControl::Init::GetDebugLogUartPort() {
@@ -383,7 +386,7 @@ namespace ams::kern::board::nintendo::nx {
         return static_cast<u8>((value >> 32) & 0xFF);
     }
 
-    void KSystemControl::Init::CpuOn(u64 core_id, uintptr_t entrypoint, uintptr_t arg) {
+    void KSystemControl::Init::CpuOnImpl(u64 core_id, uintptr_t entrypoint, uintptr_t arg) {
         MESOSPHERE_INIT_ABORT_UNLESS((::ams::kern::arch::arm64::smc::CpuOn<smc::SmcId_Supervisor, false>(core_id, entrypoint, arg)) == 0);
     }
 
@@ -399,40 +402,41 @@ namespace ams::kern::board::nintendo::nx {
 
     /* System Initialization. */
     void KSystemControl::InitializePhase1() {
-        /* Initialize our random generator. */
+        /* Configure KTargetSystem. */
+        {
+            /* Set IsDebugMode. */
+            {
+                KTargetSystem::SetIsDebugMode(GetConfigBool(smc::ConfigItem::IsDebugMode));
+
+                /* If debug mode, we want to initialize uart logging. */
+                KTargetSystem::EnableDebugLogging(KTargetSystem::IsDebugMode());
+            }
+
+            /* Set Kernel Configuration. */
+            {
+                const auto kernel_config = util::BitPack32{GetConfigU32(smc::ConfigItem::KernelConfiguration)};
+
+                KTargetSystem::EnableDebugMemoryFill(kernel_config.Get<smc::KernelConfiguration::DebugFillMemory>());
+                KTargetSystem::EnableUserExceptionHandlers(kernel_config.Get<smc::KernelConfiguration::EnableUserExceptionHandlers>());
+                KTargetSystem::EnableDynamicResourceLimits(!kernel_config.Get<smc::KernelConfiguration::DisableDynamicResourceLimits>());
+                KTargetSystem::EnableUserPmuAccess(kernel_config.Get<smc::KernelConfiguration::EnableUserPmuAccess>());
+
+                g_call_smc_on_panic = kernel_config.Get<smc::KernelConfiguration::UseSecureMonitorPanicCall>();
+            }
+
+            /* Set Kernel Debugging. */
+            {
+                /* NOTE: This is used to restrict access to SvcKernelDebug/SvcChangeKernelTraceState. */
+                /* Mesosphere may wish to not require this, as we'd ideally keep ProgramVerification enabled for userland. */
+                KTargetSystem::EnableKernelDebugging(GetConfigBool(smc::ConfigItem::DisableProgramVerification));
+            }
+        }
+
+        /* Initialize random and resource limit. */
         {
             u64 seed;
             smc::GenerateRandomBytes(std::addressof(seed), sizeof(seed));
-            s_random_generator.Initialize(reinterpret_cast<const u32*>(std::addressof(seed)), sizeof(seed) / sizeof(u32));
-            s_initialized_random_generator = true;
-        }
-
-        /* Set IsDebugMode. */
-        {
-            KTargetSystem::SetIsDebugMode(GetConfigBool(smc::ConfigItem::IsDebugMode));
-
-            /* If debug mode, we want to initialize uart logging. */
-            KTargetSystem::EnableDebugLogging(KTargetSystem::IsDebugMode());
-            KDebugLog::Initialize();
-        }
-
-        /* Set Kernel Configuration. */
-        {
-            const auto kernel_config = util::BitPack32{GetConfigU32(smc::ConfigItem::KernelConfiguration)};
-
-            KTargetSystem::EnableDebugMemoryFill(kernel_config.Get<smc::KernelConfiguration::DebugFillMemory>());
-            KTargetSystem::EnableUserExceptionHandlers(kernel_config.Get<smc::KernelConfiguration::EnableUserExceptionHandlers>());
-            KTargetSystem::EnableDynamicResourceLimits(!kernel_config.Get<smc::KernelConfiguration::DisableDynamicResourceLimits>());
-            KTargetSystem::EnableUserPmuAccess(kernel_config.Get<smc::KernelConfiguration::EnableUserPmuAccess>());
-
-            g_call_smc_on_panic = kernel_config.Get<smc::KernelConfiguration::UseSecureMonitorPanicCall>();
-        }
-
-        /* Set Kernel Debugging. */
-        {
-            /* NOTE: This is used to restrict access to SvcKernelDebug/SvcChangeKernelTraceState. */
-            /* Mesosphere may wish to not require this, as we'd ideally keep ProgramVerification enabled for userland. */
-            KTargetSystem::EnableKernelDebugging(GetConfigBool(smc::ConfigItem::DisableProgramVerification));
+            KSystemControlBase::InitializePhase1Base(seed);
         }
 
         /* Configure the Kernel Carveout region. */
@@ -442,26 +446,17 @@ namespace ams::kern::board::nintendo::nx {
 
             smc::ConfigureCarveout(0, carveout.GetAddress(), carveout.GetSize());
         }
-
-        /* Initialize the system resource limit (and potentially other things). */
-        KSystemControlBase::InitializePhase1(true);
     }
 
     void KSystemControl::InitializePhase2() {
         /* Initialize the sleep manager. */
         KSleepManager::Initialize();
 
-        /* Reserve secure applet memory. */
-        if (GetTargetFirmware() >= TargetFirmware_5_0_0) {
-            MESOSPHERE_ABORT_UNLESS(g_secure_applet_memory_address == Null<KVirtualAddress>);
-            MESOSPHERE_ABORT_UNLESS(Kernel::GetSystemResourceLimit().Reserve(ams::svc::LimitableResource_PhysicalMemoryMax, SecureAppletMemorySize));
+        /* Get the secure applet memory. */
+        const auto &secure_applet_memory = KMemoryLayout::GetSecureAppletMemoryRegion();
+        MESOSPHERE_INIT_ABORT_UNLESS(secure_applet_memory.GetSize() == SecureAppletMemorySize);
 
-            constexpr auto SecureAppletAllocateOption = KMemoryManager::EncodeOption(KMemoryManager::Pool_System, KMemoryManager::Direction_FromFront);
-            const KPhysicalAddress secure_applet_memory_phys_addr = Kernel::GetMemoryManager().AllocateAndOpenContinuous(SecureAppletMemorySize / PageSize, 1, SecureAppletAllocateOption);
-            MESOSPHERE_ABORT_UNLESS(secure_applet_memory_phys_addr != Null<KPhysicalAddress>);
-
-            g_secure_applet_memory_address = KMemoryLayout::GetLinearVirtualAddress(secure_applet_memory_phys_addr);
-        }
+        g_secure_applet_memory_address = secure_applet_memory.GetAddress();
 
         /* Initialize KTrace (and potentially other init). */
         KSystemControlBase::InitializePhase2();

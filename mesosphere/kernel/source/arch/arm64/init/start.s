@@ -33,34 +33,28 @@
     adr reg, label;                 \
     ldr reg, [reg]
 
-.section    .crt0.text.start, "ax", %progbits
+#define LOAD_RELATIVE_FROM_LABEL(reg, reg2, label) \
+    adr reg2, label;                               \
+    ldr reg, [reg2];                               \
+    add reg, reg, reg2
+
+#define INDIRECT_RELATIVE_CALL(reg, reg2, label) \
+    adr reg, label;                              \
+    add reg, reg, reg2;                          \
+    blr reg
+
+#define SETUP_SYSTEM_REGISTER(_reg, _sr)              \
+    LOAD_FROM_LABEL(_reg, __sysreg_constant_ ## _sr); \
+    msr _sr, _reg
+
+.section    .start, "ax", %progbits
 .global     _start
 _start:
     b _ZN3ams4kern4init10StartCore0Emm
-__metadata_begin:
-    .ascii "MSS0"                     /* Magic */
-__metadata_ini_offset:
-    .quad  0                          /* INI1 base address. */
-__metadata_kernelldr_offset:
-    .quad  0                          /* Kernel Loader base address. */
-__metadata_target_firmware:
-    .word  0xCCCCCCCC                 /* Target firmware. */
-__metadata_kernel_layout:
-    .word _start - _start             /* rx_offset */
-    .word __rodata_start     - _start /* rx_end_offset */
-    .word __rodata_start     - _start /* ro_offset */
-    .word __data_start       - _start /* ro_end_offset */
-    .word __data_start       - _start /* rw_offset */
-    .word __bss_start__      - _start /* rw_end_offset */
-    .word __bss_start__      - _start /* bss_offset */
-    .word __bss_end__        - _start /* bss_end_offset */
-    .word __end__            - _start /* resource_offset */
-    .word _DYNAMIC           - _start /* dynamic_offset */
-    .word __init_array_start - _start /* init_array_offset */
-    .word __init_array_end   - _start /* init_array_end_offset */
-.if (. - __metadata_begin) != 0x48
-    .error "Incorrect Mesosphere Metadata"
-.endif
+__metadata_magic_number:
+    .ascii "MSS1"                     /* Magic, if executed as gadget "adds w13, w26, #0x4d4, lsl #12" */
+__metadata_offset:
+    .word __metadata_begin - _start
 
 #ifdef ATMOSPHERE_BOARD_NINTENDO_NX
 .global     _ZN3ams4kern17GetTargetFirmwareEv
@@ -70,6 +64,16 @@ _ZN3ams4kern17GetTargetFirmwareEv:
     ldr w0, [x0]
     ret
 #endif
+
+.section    .crt0.text.start, "ax", %progbits
+
+/* ams::kern::init::IdentityMappedFunctionAreaBegin() */
+.global     _ZN3ams4kern4init31IdentityMappedFunctionAreaBeginEv
+.type       _ZN3ams4kern4init31IdentityMappedFunctionAreaBeginEv, %function
+_ZN3ams4kern4init31IdentityMappedFunctionAreaBeginEv:
+/* NOTE: This is not a real function, and only exists as a label for safety. */
+
+/*  ================ Functions after this line remain identity-mapped after initialization finishes. ================ */
 
 /* ams::kern::init::StartCore0(uintptr_t, uintptr_t) */
 .section    .crt0.text._ZN3ams4kern4init10StartCore0Emm, "ax", %progbits
@@ -128,30 +132,60 @@ _ZN3ams4kern4init10StartCore0Emm:
     /* Get the unknown debug region. */
     /* TODO: This is always zero in release kernels -- what is this? Is it the device tree buffer? */
     mov x21, #0
+    nop
 
     /* We want to invoke kernel loader. */
     adr x0, _start
     adr x1, __metadata_kernel_layout
-    LOAD_FROM_LABEL(x2, __metadata_ini_offset)
-    add x2, x0, x2
-    LOAD_FROM_LABEL(x3, __metadata_kernelldr_offset)
-    add x3, x0, x3
+    LOAD_RELATIVE_FROM_LABEL(x2, x4, __metadata_ini_offset)
+    LOAD_RELATIVE_FROM_LABEL(x3, x4, __metadata_kernelldr_offset)
 
     /* Invoke kernel loader. */
     blr x3
+
+    /* Save the offset to virtual address from this page's physical address for our use. */
+    mov x24, x1
 
     /* At this point kernelldr has been invoked, and we are relocated at a random virtual address. */
     /* Next thing to do is to set up our memory management and slabheaps -- all the other core initialization. */
     /* Call ams::kern::init::InitializeCore(uintptr_t, void **) */
     mov x1, x0  /* Kernelldr returns a state object for the kernel to re-use. */
     mov x0, x21 /* Use the address we determined earlier. */
-    bl _ZN3ams4kern4init14InitializeCoreEmPPv
+    INDIRECT_RELATIVE_CALL(x16, x24, _ZN3ams4kern4init20InitializeCorePhase1EmPPv)
 
     /* Get the init arguments for core 0. */
     mov x0, xzr
-    bl _ZN3ams4kern4init23GetInitArgumentsAddressEi
+    nop
+    INDIRECT_RELATIVE_CALL(x16, x24, _ZN3ams4kern4init16GetInitArgumentsEi)
 
-    bl _ZN3ams4kern4init16InvokeEntrypointEPKNS1_14KInitArgumentsE
+    /* Setup the stack pointer. */
+    ldr x2, [x0, #(INIT_ARGUMENTS_SP)]
+    mov sp, x2
+
+    /* Perform further initialization with the stack pointer set up, as required. */
+    /* This will include e.g. unmapping the identity mapping. */
+    INDIRECT_RELATIVE_CALL(x16, x24, _ZN3ams4kern4init20InitializeCorePhase2Ev)
+
+    /* Get the init arguments for core 0. */
+    mov x0, xzr
+    nop
+    INDIRECT_RELATIVE_CALL(x16, x24, _ZN3ams4kern4init16GetInitArgumentsEi)
+
+    /* Retrieve entrypoint and argument. */
+    ldr x1, [x0, #(INIT_ARGUMENTS_ENTRYPOINT)]
+    ldr x0, [x0, #(INIT_ARGUMENTS_ARGUMENT)]
+
+    /* Set sctlr_el1 and ensure instruction consistency. */
+    SETUP_SYSTEM_REGISTER(x3, sctlr_el1)
+
+    dsb sy
+    isb
+
+    /* Invoke the entrypoint. */
+    blr x1
+
+0:  /* If we return here, something has gone wrong, so wait forever. */
+    b 0b
 
 /* ams::kern::init::StartOtherCore(const ams::kern::init::KInitArguments *) */
 .section    .crt0.text._ZN3ams4kern4init14StartOtherCoreEPKNS1_14KInitArgumentsE, "ax", %progbits
@@ -189,15 +223,11 @@ _ZN3ams4kern4init14StartOtherCoreEPKNS1_14KInitArgumentsE:
     /* Disable the MMU/Caches. */
     bl _ZN3ams4kern4init19DisableMmuAndCachesEv
 
-    /* Setup system registers using values from our KInitArguments. */
-    ldr x1, [x20, #(INIT_ARGUMENTS_TTBR0)]
-    msr ttbr0_el1, x1
-    ldr x1, [x20, #(INIT_ARGUMENTS_TTBR1)]
-    msr ttbr1_el1, x1
-    ldr x1, [x20, #(INIT_ARGUMENTS_TCR)]
-    msr tcr_el1, x1
-    ldr x1, [x20, #(INIT_ARGUMENTS_MAIR)]
-    msr mair_el1, x1
+    /* Setup system registers using values from constants table. */
+    SETUP_SYSTEM_REGISTER(x1, ttbr0_el1)
+    SETUP_SYSTEM_REGISTER(x1, ttbr1_el1)
+    SETUP_SYSTEM_REGISTER(x1, tcr_el1)
+    SETUP_SYSTEM_REGISTER(x1, mair_el1)
 
     /* Perform cpu-specific setup. */
     mrs x1, midr_el1
@@ -221,52 +251,54 @@ _ZN3ams4kern4init14StartOtherCoreEPKNS1_14KInitArgumentsE:
     dsb sy
     isb
 
+    /* Load remaining needed fields from the init args. */
+    ldr x2, [x20, #(INIT_ARGUMENTS_SP)]
+    ldr x1, [x20, #(INIT_ARGUMENTS_ENTRYPOINT)]
+    ldr x0, [x20, #(INIT_ARGUMENTS_ARGUMENT)]
+
     /* Set sctlr_el1 and ensure instruction consistency. */
-    ldr x1, [x20, #(INIT_ARGUMENTS_SCTLR)]
-    msr sctlr_el1, x1
+    SETUP_SYSTEM_REGISTER(x3, sctlr_el1)
 
     dsb sy
     isb
 
-    /* Jump to the virtual address equivalent to ams::kern::init::InvokeEntrypoint */
-    ldr x1, [x20, #(INIT_ARGUMENTS_SETUP_FUNCTION)]
-    adr x2, _ZN3ams4kern4init14StartOtherCoreEPKNS1_14KInitArgumentsE
-    sub x1, x1, x2
-    adr x2, _ZN3ams4kern4init16InvokeEntrypointEPKNS1_14KInitArgumentsE
-    add x1, x1, x2
-    mov x0, x20
-    br x1
+    /* Set the stack pointer. */
+    mov sp, x2
 
-/* ams::kern::init::InvokeEntrypoint(const ams::kern::init::KInitArguments *) */
-.section    .crt0.text._ZN3ams4kern4init16InvokeEntrypointEPKNS1_14KInitArgumentsE, "ax", %progbits
-.global     _ZN3ams4kern4init16InvokeEntrypointEPKNS1_14KInitArgumentsE
-.type       _ZN3ams4kern4init16InvokeEntrypointEPKNS1_14KInitArgumentsE, %function
-_ZN3ams4kern4init16InvokeEntrypointEPKNS1_14KInitArgumentsE:
-    /* Preserve the KInitArguments pointer in a register. */
-    mov x20, x0
+    /* Invoke the entrypoint. */
+    blr x1
 
-    /* Clear CPACR_EL1. This will prevent classes of traps (SVE, etc). */
-    msr cpacr_el1, xzr
-    isb
+0:  /* If we return here, something has gone wrong, so wait forever. */
+    b 0b
 
-    /* Setup the stack pointer. */
-    ldr x1, [x20, #(INIT_ARGUMENTS_SP)]
-    mov sp, x1
+/* Nintendo places the metadata after StartOthercore. */
+.align 8
 
-    /* Ensure that system debug registers are setup. */
-    bl _ZN3ams4kern4init24InitializeDebugRegistersEv
+__metadata_begin:
+__metadata_ini_offset:
+    .quad  0                          /* INI1 base address. */
+__metadata_kernelldr_offset:
+    .quad  0                          /* Kernel Loader base address. */
+__metadata_target_firmware:
+    .word  0xCCCCCCCC                 /* Target firmware. */
+__metadata_kernel_layout:
+    .word _start                  - __metadata_kernel_layout /* rx_offset */
+    .word __rodata_start          - __metadata_kernel_layout /* rx_end_offset */
+    .word __rodata_start          - __metadata_kernel_layout /* ro_offset */
+    .word __data_start            - __metadata_kernel_layout /* ro_end_offset */
+    .word __data_start            - __metadata_kernel_layout /* rw_offset */
+    .word __bss_start__           - __metadata_kernel_layout /* rw_end_offset */
+    .word __bss_start__           - __metadata_kernel_layout /* bss_offset */
+    .word __bss_end__             - __metadata_kernel_layout /* bss_end_offset */
+    .word __end__                 - __metadata_kernel_layout /* resource_offset */
+    .word _DYNAMIC                - __metadata_kernel_layout /* dynamic_offset */
+    .word __init_array_start      - __metadata_kernel_layout /* init_array_offset */
+    .word __init_array_end        - __metadata_kernel_layout /* init_array_end_offset */
+    .word __sysreg_constant_begin - __metadata_kernel_layout /* sysreg_offset */
+.if (. - __metadata_begin) != 0x48
+    .error "Incorrect Mesosphere Metadata"
+.endif
 
-    /* Ensure that the exception vectors are setup. */
-    bl _ZN3ams4kern4init26InitializeExceptionVectorsEv
-
-    /* Setup the exception stack in cntv_cval_el0. */
-    ldr x1, [x20, #(INIT_ARGUMENTS_EXCEPTION_STACK)]
-    msr cntv_cval_el0, x1
-
-    /* Jump to the entrypoint. */
-    ldr x1, [x20, #(INIT_ARGUMENTS_ENTRYPOINT)]
-    ldr x0, [x20, #(INIT_ARGUMENTS_ARGUMENT)]
-    br x1
 
 /* TODO: Can we remove this while retaining QEMU support? */
 #ifndef ATMOSPHERE_BOARD_NINTENDO_NX
@@ -345,7 +377,7 @@ _ZN3ams4kern4init16JumpFromEL2ToEL1Ev:
     mov x0, #0xC5
     msr spsr_el2, x0
 
-    eret
+    ERET_WITH_SPECULATION_BARRIER
 #endif
 
 /* ams::kern::init::DisableMmuAndCaches() */
@@ -559,3 +591,30 @@ _ZN3ams4kern4arch5arm643cpu36FlushEntireDataCacheImplWithoutStackEv:
     b 0b
 3:
     ret
+
+
+/* System register values. */
+.align 8
+
+__sysreg_constant_begin:
+__sysreg_constant_ttbr0_el1:
+    .quad  0 /* ttbr0_e11. */
+__sysreg_constant_ttbr1_el1:
+    .quad  0 /* ttbr1_e11. */
+__sysreg_constant_tcr_el1:
+    .quad  0 /* tcr_e11. */
+__sysreg_constant_mair_el1:
+    .quad  0 /* mair_e11. */
+__sysreg_constant_sctlr_el1:
+    .quad  0 /* sctlr_e11. */
+.if (. - __sysreg_constant_begin) != 0x28
+    .error "Incorrect System Registers"
+.endif
+
+/*  ================ Functions before this line remain identity-mapped after initialization finishes. ================ */
+
+/* ams::kern::init::IdentityMappedFunctionAreaEnd() */
+.global     _ZN3ams4kern4init29IdentityMappedFunctionAreaEndEv
+.type       _ZN3ams4kern4init31IdentityMappedFunctionAreaEndEv, %function
+_ZN3ams4kern4init29IdentityMappedFunctionAreaEndEv:
+/* NOTE: This is not a real function, and only exists as a label for safety. */

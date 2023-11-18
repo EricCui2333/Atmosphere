@@ -174,6 +174,12 @@
     HANDLER(ServiceProfileInfo,                  133) \
     HANDLER(BluetoothAudioInfo,                  134) \
     HANDLER(BluetoothPairingCountInfo,           135) \
+    HANDLER(FsProxyErrorInfo2,                   136) \
+    HANDLER(BuiltInWirelessOUIInfo,              137) \
+    HANDLER(WirelessAPOUIInfo,                   138) \
+    HANDLER(EthernetAdapterOUIInfo,              139) \
+    HANDLER(NANDTypeInfo,                        140) \
+    HANDLER(MicroSDTypeInfo,                     141) \
 
 #define AMS_ERPT_FOREACH_FIELD(HANDLER) \
     HANDLER(TestU64,                                                  0,   Test,                                FieldType_NumericU64, FieldFlag_None   ) \
@@ -832,4 +838,29 @@
     HANDLER(FatFsBisUserDirectoryPeakOpenCount,                       653, FsProxyErrorInfo,                    FieldType_NumericU16, FieldFlag_None   ) \
     HANDLER(FatFsSdCardFilePeakOpenCount,                             654, FsProxyErrorInfo,                    FieldType_NumericU16, FieldFlag_None   ) \
     HANDLER(FatFsSdCardDirectoryPeakOpenCount,                        655, FsProxyErrorInfo,                    FieldType_NumericU16, FieldFlag_None   ) \
+    HANDLER(SslAlertInfo,                                             656, NetworkSecurityCertificateInfo,      FieldType_U8Array,    FieldFlag_None   ) \
+    HANDLER(SslVersionInfo,                                           657, NetworkSecurityCertificateInfo,      FieldType_U8Array,    FieldFlag_None   ) \
+    HANDLER(FatFsBisSystemUniqueFileEntryPeakOpenCount,               658, FsProxyErrorInfo,                    FieldType_NumericU16, FieldFlag_None   ) \
+    HANDLER(FatFsBisSystemUniqueDirectoryEntryPeakOpenCount,          659, FsProxyErrorInfo,                    FieldType_NumericU16, FieldFlag_None   ) \
+    HANDLER(FatFsBisUserUniqueFileEntryPeakOpenCount,                 660, FsProxyErrorInfo,                    FieldType_NumericU16, FieldFlag_None   ) \
+    HANDLER(FatFsBisUserUniqueDirectoryEntryPeakOpenCount,            661, FsProxyErrorInfo,                    FieldType_NumericU16, FieldFlag_None   ) \
+    HANDLER(FatFsSdCardUniqueFileEntryPeakOpenCount,                  662, FsProxyErrorInfo,                    FieldType_NumericU16, FieldFlag_None   ) \
+    HANDLER(FatFsSdCardUniqueDirectoryEntryPeakOpenCount,             663, FsProxyErrorInfo,                    FieldType_NumericU16, FieldFlag_None   ) \
+    HANDLER(ServerErrorIsRetryable,                                   664, ErrorInfo,                           FieldType_Bool,       FieldFlag_None   ) \
+    HANDLER(FsDeepRetryStartCount,                                    665, FsProxyErrorInfo2,                   FieldType_NumericU32, FieldFlag_None   ) \
+    HANDLER(FsUnrecoverableByGameCardAccessFailedCount,               666, FsProxyErrorInfo2,                   FieldType_NumericU32, FieldFlag_None   ) \
+    HANDLER(BuiltInWirelessOUI,                                       667, BuiltInWirelessOUIInfo,              FieldType_String,     FieldFlag_None   ) \
+    HANDLER(WirelessAPOUI,                                            668, WirelessAPOUIInfo,                   FieldType_String,     FieldFlag_None   ) \
+    HANDLER(EthernetAdapterOUI,                                       669, EthernetAdapterOUIInfo,              FieldType_String,     FieldFlag_None   ) \
+    HANDLER(FatFsBisSystemFatSafeControlResult,                       670, FsProxyErrorInfo2,                   FieldType_NumericU8,  FieldFlag_None   ) \
+    HANDLER(FatFsBisSystemFatErrorNumber,                             671, FsProxyErrorInfo2,                   FieldType_NumericI32, FieldFlag_None   ) \
+    HANDLER(FatFsBisSystemFatSafeErrorNumber,                         672, FsProxyErrorInfo2,                   FieldType_NumericI32, FieldFlag_None   ) \
+    HANDLER(FatFsBisUserFatSafeControlResult,                         673, FsProxyErrorInfo2,                   FieldType_NumericU8,  FieldFlag_None   ) \
+    HANDLER(FatFsBisUserFatErrorNumber,                               674, FsProxyErrorInfo2,                   FieldType_NumericI32, FieldFlag_None   ) \
+    HANDLER(FatFsBisUserFatSafeErrorNumber,                           675, FsProxyErrorInfo2,                   FieldType_NumericI32, FieldFlag_None   ) \
+    HANDLER(GpuCrashDump2,                                            676, GpuCrashInfo,                        FieldType_U8Array,    FieldFlag_None   ) \
+    HANDLER(NANDType,                                                 677, NANDTypeInfo,                        FieldType_U8Array,    FieldFlag_None   ) \
+    HANDLER(MicroSDType,                                              678, MicroSDTypeInfo,                     FieldType_U8Array,    FieldFlag_None   ) \
+    HANDLER(GameCardLastDeactivateReasonResult,                       679, GameCardErrorInfo,                   FieldType_NumericU32, FieldFlag_None   ) \
+    HANDLER(GameCardLastDeactivateReason,                             680, GameCardErrorInfo,                   FieldType_NumericU8,  FieldFlag_None   ) \
 

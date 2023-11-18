@@ -21,11 +21,22 @@ namespace ams::kern {
 
     struct InitialProcessBinaryLayout;
 
+    namespace init {
+
+        struct KInitArguments;
+
+    }
+
 }
 
 namespace ams::kern {
 
+    class KResourceLimit;
+
     class KSystemControlBase {
+        public:
+            /* This can be overridden as needed. */
+            static constexpr size_t SecureAppletMemorySize = 0;
         protected:
             /* Nintendo uses std::mt19937_t for randomness. */
             /* To save space (and because mt19337_t isn't secure anyway), */
@@ -35,6 +46,8 @@ namespace ams::kern {
             static constinit inline KSpinLock    s_random_lock;
         public:
             class Init {
+                private:
+                    static void CpuOnImpl(u64 core_id, uintptr_t entrypoint, uintptr_t arg);
                 public:
                     /* Initialization. */
                     static size_t GetRealMemorySize();
@@ -42,7 +55,7 @@ namespace ams::kern {
                     static KPhysicalAddress GetKernelPhysicalBaseAddress(KPhysicalAddress base_address);
                     static void GetInitialProcessBinaryLayout(InitialProcessBinaryLayout *out);
                     static bool ShouldIncreaseThreadResourceLimit();
-                    static void CpuOn(u64 core_id, uintptr_t entrypoint, uintptr_t arg);
+                    static void TurnOnCpu(u64 core_id, const ams::kern::init::KInitArguments *args);
                     static size_t GetApplicationPoolSize();
                     static size_t GetAppletPoolSize();
                     static size_t GetMinimumNonSecureSystemPoolSize();
@@ -52,9 +65,11 @@ namespace ams::kern {
                     static void GenerateRandom(u64 *dst, size_t count);
                     static u64  GenerateRandomRange(u64 min, u64 max);
             };
+        protected:
+            static NOINLINE void InitializePhase1Base(u64 seed);
         public:
             /* Initialization. */
-            static NOINLINE void InitializePhase1(bool skip_target_system = false);
+            static NOINLINE void InitializePhase1();
             static NOINLINE void InitializePhase2();
             static NOINLINE u32 GetCreateProcessMemoryPool();
 
@@ -83,6 +98,10 @@ namespace ams::kern {
             static size_t CalculateRequiredSecureMemorySize(size_t size, u32 pool);
             static Result AllocateSecureMemory(KVirtualAddress *out, size_t size, u32 pool);
             static void FreeSecureMemory(KVirtualAddress address, size_t size, u32 pool);
+
+            /* Insecure Memory. */
+            static KResourceLimit *GetInsecureMemoryResourceLimit();
+            static u32 GetInsecureMemoryPool();
         protected:
             template<typename F>
             static ALWAYS_INLINE u64 GenerateUniformRange(u64 min, u64 max, F f) {
